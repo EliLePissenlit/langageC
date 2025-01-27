@@ -1,5 +1,7 @@
 #include <SDL2/SDL.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #define WINDOW_WIDTH 600
 #define WINDOW_HEIGHT 600
@@ -92,7 +94,7 @@ bool is_board_full() {
 
 int main() {
     if(SDL_Init(SDL_INIT_VIDEO) < 0) {
-        return 1;
+        exit(EXIT_FAILURE);
     }
     
     SDL_Window* window = SDL_CreateWindow("Tic Tac Toe",
@@ -102,7 +104,7 @@ int main() {
                                         SDL_WINDOW_SHOWN);
     if(!window) {
         SDL_Quit();
-        return 1;
+         exit(EXIT_FAILURE);
     }
     
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1,
@@ -110,7 +112,7 @@ int main() {
     if(!renderer) {
         SDL_DestroyWindow(window);
         SDL_Quit();
-        return 1;
+        exit(EXIT_FAILURE);
     }
     
     bool quit = false;
@@ -149,5 +151,5 @@ int main() {
     SDL_DestroyWindow(window);
     SDL_Quit();
     
-    return 0;
+     exit(EXIT_SUCCESS);
 }
