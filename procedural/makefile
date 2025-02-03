@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = $(shell sdl2-config --cflags) -Wall -Wextra -std=c99
+CFLAGS = $(shell sdl2-config --cflags) -Wall -Wextra -std=c99 -lm
 LDFLAGS = $(shell sdl2-config --libs) -lSDL2_ttf
 
 SRC_TICTACTOE = main.c logic.c rendering.c subgame.c

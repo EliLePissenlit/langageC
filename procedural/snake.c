@@ -233,4 +233,6 @@ int main() {
     SDL_Quit();
 
     return game_result;  // Retourne 1 (victoire) ou -1 (défaite)
+    return (score >= 15) ? 1 : -1;
+
 }
