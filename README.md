@@ -5,5 +5,5 @@ $ mkdir build/
 $ cd build/
 $ cmake ..
 $ make
-$ ./procedural
+$ ./play
 ```

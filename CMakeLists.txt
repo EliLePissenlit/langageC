@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.7)
 
-project(procedural C)
+project(play C)
 
 find_package(SDL2 REQUIRED)
 include_directories(${SDL2_INCLUDE_DIRS})
@@ -22,6 +22,7 @@ set(SRCS
     menu.c
     ai.c
     snake.c
+    window.c
 )
 
 set(HEADERS
@@ -31,10 +32,11 @@ set(HEADERS
     menu.h
     ai.h
     snake.h
+    window.h
 )
 
-add_executable(procedural ${SRCS} ${HEADERS})
-target_link_libraries(procedural 
+add_executable(play ${SRCS} ${HEADERS})
+target_link_libraries(play 
     ${SDL2_LIBRARIES} 
     ${SDL2_GFX_LIBRARIES} 
     ${SDL2_TTF_LIBRARIES}

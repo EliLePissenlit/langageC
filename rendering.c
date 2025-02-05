@@ -1,4 +1,8 @@
-// rendering.c
+/**
+ * @file rendering.c
+ * @brief Implémentation du rendu graphique
+ */
+
 #include <math.h>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL2_gfxPrimitives.h>
@@ -6,243 +10,364 @@
 
 #include "./game.h"
 #include "./rendering.h"
-#include "./logic.h" 
+#include "./logic.h"
+#include "./window.h"
 
-// Définition des couleurs utilisées dans le jeu
-const SDL_Color GRID_COLOR = { .r = 255, .g = 255, .b = 255 };          // Couleur de la grille
-const SDL_Color PLAYER_X_COLOR = { .r = 255, .g = 50, .b = 50 };        // Rouge pour X
-const SDL_Color PLAYER_O_COLOR = { .r = 50, .g = 100, .b = 255 };       // Bleu pour O
-const SDL_Color TIE_COLOR = { .r = 100, .g = 100, .b = 100 };          // Gris pour égalité
-const SDL_Color VICTORY_BUTTON_COLOR = { .r = 100, .g = 200, .b = 100 }; // Vert pour boutons
-const SDL_Color VICTORY_TEXT_COLOR = { .r = 255, .g = 255, .b = 255 };  // Blanc pour texte
-const SDL_Color VICTORY_OVERLAY_COLOR = { .r = 0, .g = 0, .b = 0, .a = 180 }; // Fond semi-transparent
+/*********************************
+ * Configuration des styles
+ *********************************/
 
-// Rendu de la grille de jeu
-void render_grid(SDL_Renderer *renderer, const SDL_Color *color)
-{
-    SDL_SetRenderDrawColor(renderer, color->r, color->g, color->b, 255);
+#define BUTTON_CORNER_RADIUS 8
+#define BUTTON_HOVER_SCALE 1.05f
+#define VICTORY_GLOW_INTENSITY 3
+#define VICTORY_TEXT_SCALE 1.5f
+#define SYMBOL_THICKNESS 10
+#define SYMBOL_SIZE_RATIO 0.25f
 
-    // Dessine les lignes verticales et horizontales
-    for (int i = 1; i < N; ++i) {
-        SDL_RenderDrawLine(renderer,
-                           i * CELL_WIDTH, 0,
-                           i * CELL_WIDTH, SCREEN_HEIGHT);
-        SDL_RenderDrawLine(renderer,
-                           0,            i * CELL_HEIGHT,
-                           SCREEN_WIDTH, i * CELL_HEIGHT);
+typedef struct {
+    SDL_Color background;
+    SDL_Color button;
+    SDL_Color button_hover;
+    SDL_Color accent1;
+    SDL_Color accent2;
+    SDL_Color text;
+    SDL_Color text_secondary;
+    SDL_Color shadow;
+    SDL_Color overlay;
+    SDL_Color grid;
+} ColorTheme;
+
+static const ColorTheme THEME = {
+    .background = {18, 18, 24, 255},      // Noir profond
+    .button = {28, 28, 35, 255},          // Gris foncé
+    .button_hover = {38, 38, 45, 255},    // Gris plus clair
+    .accent1 = {220, 40, 40, 255},        // Rouge (X)
+    .accent2 = {40, 100, 220, 255},       // Bleu (O)
+    .text = {255, 255, 255, 255},         // Blanc
+    .text_secondary = {180, 180, 180, 255}, // Gris clair
+    .shadow = {0, 0, 0, 180},             // Ombre semi-transparente
+    .overlay = {18, 18, 24, 230},         // Overlay semi-transparent
+    .grid = {255, 255, 255, 255}          // Grille blanche
+};
+
+/*********************************
+ * Fonctions utilitaires statiques
+ *********************************/
+
+static void draw_styled_button(SDL_Renderer* renderer, const SDL_Rect* button,
+                             const SDL_Color* color, const SDL_Color* border_color,
+                             int is_hovered) {
+    float scale = is_hovered ? BUTTON_HOVER_SCALE : 1.0f;
+    int w = (int)(button->w * scale);
+    int h = (int)(button->h * scale);
+    int x = button->x - (w - button->w) / 2;
+    int y = button->y - (h - button->h) / 2;
+
+    // Fond du bouton avec coins arrondis
+    roundedBoxRGBA(renderer,
+        x, y, x + w, y + h,
+        BUTTON_CORNER_RADIUS,
+        color->r, color->g, color->b, color->a);
+
+    // Bordure avec coins arrondis
+    roundedRectangleRGBA(renderer,
+        x, y, x + w, y + h,
+        BUTTON_CORNER_RADIUS,
+        border_color->r, border_color->g, border_color->b, border_color->a);
+
+    // Effet de lueur si survolé
+    if (is_hovered) {
+        for (int i = 1; i <= 3; i++) {
+            roundedRectangleRGBA(renderer,
+                x - i, y - i,
+                x + w + i, y + h + i,
+                BUTTON_CORNER_RADIUS + i,
+                border_color->r, border_color->g, border_color->b, 100 - i * 30);
+        }
     }
 }
 
-// Rendu d'un X dans une cellule
-void render_x(SDL_Renderer *renderer,
-              int row, int column,
-              const SDL_Color *color)
-{
-    // Calcule les dimensions et la position du X
-    const float half_box_side = fmin(CELL_WIDTH, CELL_HEIGHT) * 0.25;
-    const float center_x = CELL_WIDTH * 0.5 + column * CELL_WIDTH;
-    const float center_y = CELL_HEIGHT * 0.5 + row * CELL_HEIGHT;
+static void draw_victory_text(SDL_Renderer* renderer, TTF_Font* font,
+                            const char* text, int y_pos, int window_width,
+                            const SDL_Color* color) {
+    // Ombre du texte
+    SDL_Surface* shadow_surface = TTF_RenderText_Blended(font, text, THEME.shadow);
+    if (shadow_surface) {
+        SDL_Texture* shadow_texture = SDL_CreateTextureFromSurface(renderer, shadow_surface);
+        SDL_Rect shadow_rect = {
+            (window_width - shadow_surface->w) / 2 + 2,
+            y_pos + 2,
+            shadow_surface->w,
+            shadow_surface->h
+        };
+        SDL_RenderCopy(renderer, shadow_texture, NULL, &shadow_rect);
+        SDL_DestroyTexture(shadow_texture);
+        SDL_FreeSurface(shadow_surface);
+    }
 
-    // Dessine les deux lignes du X avec une épaisseur de 10
-    thickLineRGBA(renderer,
-                  center_x - half_box_side,
-                  center_y - half_box_side,
-                  center_x + half_box_side,
-                  center_y + half_box_side,
-                  10,
-                  color->r,
-                  color->g,
-                  color->b,
-                  255);
-    thickLineRGBA(renderer,
-                  center_x + half_box_side,
-                  center_y - half_box_side,
-                  center_x - half_box_side,
-                  center_y + half_box_side,
-                  10,
-                  color->r,
-                  color->g,
-                  color->b,
-                  255);
+    // Texte principal avec mise à l'échelle
+    SDL_Surface* text_surface = TTF_RenderText_Blended(font, text, *color);
+    if (text_surface) {
+        SDL_Texture* text_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
+        SDL_Rect text_rect = {
+            (window_width - (int)(text_surface->w * VICTORY_TEXT_SCALE)) / 2,
+            y_pos,
+            (int)(text_surface->w * VICTORY_TEXT_SCALE),
+            (int)(text_surface->h * VICTORY_TEXT_SCALE)
+        };
+        SDL_RenderCopy(renderer, text_texture, NULL, &text_rect);
+        SDL_DestroyTexture(text_texture);
+        SDL_FreeSurface(text_surface);
+    }
 }
 
-// Rendu d'un O dans une cellule
-void render_o(SDL_Renderer *renderer,
-              int row, int column,
-              const SDL_Color *color)
-{
-    // Calcule les dimensions et la position du O
-    const float half_box_side = fmin(CELL_WIDTH, CELL_HEIGHT) * 0.25;
-    const float center_x = CELL_WIDTH * 0.5 + column * CELL_WIDTH;
-    const float center_y = CELL_HEIGHT * 0.5 + row * CELL_HEIGHT;
+static void draw_button_text(SDL_Renderer* renderer, TTF_Font* font,
+                           const char* text, const SDL_Rect* button,
+                           const SDL_Color* color, int is_hovered) {
+    // Ombre du texte
+    SDL_Surface* shadow_surface = TTF_RenderText_Blended(font, text, THEME.shadow);
+    if (shadow_surface) {
+        SDL_Texture* shadow_texture = SDL_CreateTextureFromSurface(renderer, shadow_surface);
+        SDL_Rect shadow_rect = {
+            button->x + (button->w - shadow_surface->w) / 2 + 2,
+            button->y + (button->h - shadow_surface->h) / 2 + 2,
+            shadow_surface->w,
+            shadow_surface->h
+        };
+        SDL_RenderCopy(renderer, shadow_texture, NULL, &shadow_rect);
+        SDL_DestroyTexture(shadow_texture);
+        SDL_FreeSurface(shadow_surface);
+    }
 
-    // Dessine un cercle rempli pour le O
-    filledCircleRGBA(renderer,
-                     center_x, center_y, half_box_side + 5,
-                     color->r, color->g, color->b, 255);
-    // Dessine un cercle noir à l'intérieur pour créer l'effet "anneau"
-    filledCircleRGBA(renderer,
-                     center_x, center_y, half_box_side - 5,
-                     0, 0, 0, 255);
+    // Texte principal
+    SDL_Surface* text_surface = TTF_RenderText_Blended(font, text, *color);
+    if (text_surface) {
+        SDL_Texture* text_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
+        SDL_Rect text_rect = {
+            button->x + (button->w - text_surface->w) / 2,
+            button->y + (button->h - text_surface->h) / 2,
+            text_surface->w,
+            text_surface->h
+        };
+        
+        // Effet de mise à l'échelle au survol
+        if (is_hovered) {
+            text_rect.x -= (int)(text_surface->w * (BUTTON_HOVER_SCALE - 1) / 2);
+            text_rect.y -= (int)(text_surface->h * (BUTTON_HOVER_SCALE - 1) / 2);
+            text_rect.w = (int)(text_surface->w * BUTTON_HOVER_SCALE);
+            text_rect.h = (int)(text_surface->h * BUTTON_HOVER_SCALE);
+        }
+        
+        SDL_RenderCopy(renderer, text_texture, NULL, &text_rect);
+        SDL_DestroyTexture(text_texture);
+        SDL_FreeSurface(text_surface);
+    }
 }
 
-// Rendu du plateau de jeu complet
-void render_board(SDL_Renderer *renderer,
-                  const int *board,
-                  const SDL_Color *player_x_color,
-                  const SDL_Color *player_o_color)
-{
-    // Parcourt chaque cellule du plateau
+/*********************************
+ * Fonctions de rendu du jeu
+ *********************************/
+
+static void render_grid(SDL_Renderer* renderer, const game_t* game, const SDL_Color* color) {
+    // Utilise la couleur passée en paramètre ou la couleur par défaut de la grille
+    const SDL_Color* grid_color = color ? color : &THEME.grid;
+    
+    SDL_SetRenderDrawColor(renderer, 
+        grid_color->r, 
+        grid_color->g, 
+        grid_color->b, 
+        grid_color->a);
+
+    // Lignes verticales
+    for (int i = 1; i < N; ++i) {
+        SDL_RenderDrawLine(renderer,
+            i * game->dimensions.cell_width, 0,
+            i * game->dimensions.cell_width, game->dimensions.window_height);
+    }
+
+    // Lignes horizontales
+    for (int i = 1; i < N; ++i) {
+        SDL_RenderDrawLine(renderer,
+            0, i * game->dimensions.cell_height,
+            game->dimensions.window_width, i * game->dimensions.cell_height);
+    }
+}
+
+static void render_x(SDL_Renderer* renderer, const game_t* game, int row, int column, const SDL_Color* color) {
+    const float half_box_side = fmin(game->dimensions.cell_width, game->dimensions.cell_height) * SYMBOL_SIZE_RATIO;
+    const float center_x = game->dimensions.cell_width * 0.5 + column * game->dimensions.cell_width;
+    const float center_y = game->dimensions.cell_height * 0.5 + row * game->dimensions.cell_height;
+
+    thickLineRGBA(renderer,
+        center_x - half_box_side,
+        center_y - half_box_side,
+        center_x + half_box_side,
+        center_y + half_box_side,
+        SYMBOL_THICKNESS,
+        color->r, color->g, color->b, color->a);
+
+    thickLineRGBA(renderer,
+        center_x + half_box_side,
+        center_y - half_box_side,
+        center_x - half_box_side,
+        center_y + half_box_side,
+        SYMBOL_THICKNESS,
+        color->r, color->g, color->b, color->a);
+}
+
+static void render_o(SDL_Renderer* renderer, const game_t* game, int row, int column, const SDL_Color* color) {
+    const float half_box_side = fmin(game->dimensions.cell_width, game->dimensions.cell_height) * SYMBOL_SIZE_RATIO;
+    const float center_x = game->dimensions.cell_width * 0.5 + column * game->dimensions.cell_width;
+    const float center_y = game->dimensions.cell_height * 0.5 + row * game->dimensions.cell_height;
+
+    filledCircleRGBA(renderer,
+        center_x, center_y,
+        half_box_side + 5,
+        color->r, color->g, color->b, color->a);
+
+    filledCircleRGBA(renderer,
+        center_x, center_y,
+        half_box_side - 5,
+        THEME.background.r, THEME.background.g, THEME.background.b, THEME.background.a);
+}
+
+static void render_board(SDL_Renderer* renderer, const game_t* game, const SDL_Color* override_color) {
+    const SDL_Color* x_color = override_color ? override_color : &THEME.accent1;
+    const SDL_Color* o_color = override_color ? override_color : &THEME.accent2;
+
     for (int i = 0; i < N; ++i) {
         for (int j = 0; j < N; ++j) {
-            switch (board[i * N + j]) {
-            case PLAYER_X:
-                render_x(renderer, i, j, player_x_color);
-                break;
-
-            case PLAYER_O:
-                render_o(renderer, i, j, player_o_color);
-                break;
-
-            default: {}  // Case vide
+            switch (game->board[i * N + j]) {
+                case PLAYER_X:
+                    render_x(renderer, game, i, j, x_color);
+                    break;
+                case PLAYER_O:
+                    render_o(renderer, game, i, j, o_color);
+                    break;
+                default:
+                    break;
             }
         }
     }
 }
 
-// Rendu du jeu en cours
-void render_running_state(SDL_Renderer *renderer, const game_t *game)
-{
-    render_grid(renderer, &GRID_COLOR);
-    render_board(renderer,
-                 game->board,
-                 &PLAYER_X_COLOR,
-                 &PLAYER_O_COLOR);
+static void render_running_state(SDL_Renderer* renderer, const game_t* game) {
+    SDL_SetRenderDrawColor(renderer, 
+        THEME.background.r, THEME.background.g, 
+        THEME.background.b, THEME.background.a);
+    SDL_RenderClear(renderer);
+
+    render_grid(renderer, game, NULL);
+    render_board(renderer, game, NULL);
 }
 
-// Rendu de l'état de fin de partie
-void render_game_over_state(SDL_Renderer *renderer,
-                            const game_t *game,
-                            const SDL_Color *color)
-{
-    render_grid(renderer, color);
-    render_board(renderer,
-                 game->board,
-                 color,
-                 color);
+static void render_game_over_state(SDL_Renderer* renderer, const game_t* game, const SDL_Color* color) {
+    SDL_SetRenderDrawColor(renderer, 
+        THEME.background.r, THEME.background.g, 
+        THEME.background.b, THEME.background.a);
+    SDL_RenderClear(renderer);
+
+    render_grid(renderer, game, color);
+    render_board(renderer, game, color);
 }
 
-// Rendu du menu de victoire
-void render_victory_menu(SDL_Renderer *renderer, const game_t *game, TTF_Font *font) {
-    // Active le mode de transparence
+void render_victory_menu(SDL_Renderer* renderer, const game_t* game, TTF_Font* font) {
+    // Activation du mode de fusion pour les effets de transparence
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     
-    // Crée un overlay semi-transparent
-    SDL_SetRenderDrawColor(renderer, 
-        VICTORY_OVERLAY_COLOR.r, 
-        VICTORY_OVERLAY_COLOR.g, 
-        VICTORY_OVERLAY_COLOR.b, 
-        VICTORY_OVERLAY_COLOR.a);
-    
-    SDL_Rect overlay = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT};
-    SDL_RenderFillRect(renderer, &overlay);
+    // Fond avec dégradé subtil
+    for (int y = 0; y < game->dimensions.window_height; y++) {
+        float factor = (float)y / game->dimensions.window_height;
+        SDL_SetRenderDrawColor(renderer,
+            THEME.overlay.r + (int)(10 * factor),
+            THEME.overlay.g + (int)(10 * factor),
+            THEME.overlay.b + (int)(10 * factor),
+            THEME.overlay.a);
+        SDL_RenderDrawLine(renderer, 0, y, game->dimensions.window_width, y);
+    }
 
-    // Détermine le message à afficher
+    // Détermination des couleurs selon le résultat
+    const SDL_Color* accent_color;
     const char* message;
-    if (game->state == VICTORY_MENU_STATE) {
-        if (check_player_won(game, PLAYER_X)) {
-            message = "Joueur X Gagne!";
-        } else if (check_player_won(game, PLAYER_O)) {
-            message = "Joueur O Gagne!";
-        } else {
-            message = "Match Nul!";
-        }
+    if (check_player_won(game, PLAYER_X)) {
+        accent_color = &THEME.accent1;
+        message = "VICTOIRE JOUEUR X";
+    } else if (check_player_won(game, PLAYER_O)) {
+        accent_color = &THEME.accent2;
+        message = "VICTOIRE JOUEUR O";
     } else {
-        message = "Fin de partie!";
+        accent_color = &THEME.text_secondary;
+        message = "MATCH NUL";
     }
 
-    // Rendu du message principal
-    SDL_Surface* text_surface = TTF_RenderText_Solid(font, message, VICTORY_TEXT_COLOR);
-    if (text_surface) {
-        SDL_Texture* text_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
-        SDL_Rect text_rect = {
-            (SCREEN_WIDTH - text_surface->w) / 2,
-            SCREEN_HEIGHT / 3 - text_surface->h / 2,
-            text_surface->w,
-            text_surface->h
-        };
-        SDL_RenderCopy(renderer, text_texture, NULL, &text_rect);
-        SDL_FreeSurface(text_surface);
-        SDL_DestroyTexture(text_texture);
+    // Position de la souris pour les effets de survol
+    int mouse_x, mouse_y;
+    SDL_GetMouseState(&mouse_x, &mouse_y);
+    SDL_Point mouse = {mouse_x, mouse_y};
+
+    // Texte de victoire avec effet de lueur
+    int title_y = game->dimensions.window_height / 4;
+    
+    // Effet de lueur derrière le texte
+    for (int i = VICTORY_GLOW_INTENSITY; i > 0; i--) {
+        roundedBoxRGBA(renderer,
+            game->dimensions.window_width/4 - i*4,
+            title_y - 30 - i*4,
+            3*game->dimensions.window_width/4 + i*4,
+            title_y + 30 + i*4,
+            BUTTON_CORNER_RADIUS + i,
+            accent_color->r, accent_color->g, accent_color->b, 20/i);
     }
 
-    // Rendu des boutons
-    SDL_SetRenderDrawColor(renderer, 
-        VICTORY_BUTTON_COLOR.r, 
-        VICTORY_BUTTON_COLOR.g, 
-        VICTORY_BUTTON_COLOR.b, 
-        255);
-    SDL_RenderFillRect(renderer, &game->replay_button);
-    SDL_RenderFillRect(renderer, &game->menu_button);
+    // Texte de victoire
+    draw_victory_text(renderer, font, message, title_y,
+                     game->dimensions.window_width, accent_color);
 
-    // Rendu du texte des boutons
-    SDL_Surface* replay_text = TTF_RenderText_Solid(font, "Rejouer", VICTORY_TEXT_COLOR);
-    SDL_Surface* menu_text = TTF_RenderText_Solid(font, "Menu Principal", VICTORY_TEXT_COLOR);
+    // Boutons
+    SDL_bool replay_hovered = SDL_PointInRect(&mouse, &game->replay_button);
+    SDL_bool menu_hovered = SDL_PointInRect(&mouse, &game->menu_button);
 
-    if (replay_text && menu_text) {
-        // Crée les textures pour les textes des boutons
-        SDL_Texture* replay_texture = SDL_CreateTextureFromSurface(renderer, replay_text);
-        SDL_Texture* menu_texture = SDL_CreateTextureFromSurface(renderer, menu_text);
+    // Bouton Rejouer
+    draw_styled_button(renderer, &game->replay_button,
+                      &THEME.button, accent_color, replay_hovered);
+    draw_button_text(renderer, font, "Rejouer",
+                    &game->replay_button, &THEME.text, replay_hovered);
 
-        // Position le texte "Rejouer"
-        SDL_Rect replay_text_rect = {
-            game->replay_button.x + (game->replay_button.w - replay_text->w) / 2,
-            game->replay_button.y + (game->replay_button.h - replay_text->h) / 2,
-            replay_text->w,
-            replay_text->h
-        };
-
-        // Position le texte "Menu Principal"
-        SDL_Rect menu_text_rect = {
-            game->menu_button.x + (game->menu_button.w - menu_text->w) / 2,
-            game->menu_button.y + (game->menu_button.h - menu_text->h) / 2,
-            menu_text->w,
-            menu_text->h
-        };
-
-        // Affiche les textes
-        SDL_RenderCopy(renderer, replay_texture, NULL, &replay_text_rect);
-        SDL_RenderCopy(renderer, menu_texture, NULL, &menu_text_rect);
-
-        // Libère les ressources
-        SDL_FreeSurface(replay_text);
-        SDL_FreeSurface(menu_text);
-        SDL_DestroyTexture(replay_texture);
-        SDL_DestroyTexture(menu_texture);
-    }
+    // Bouton Menu
+    draw_styled_button(renderer, &game->menu_button,
+                      &THEME.button, accent_color, menu_hovered);
+    draw_button_text(renderer, font, "Menu Principal",
+                    &game->menu_button, &THEME.text, menu_hovered);
 }
 
-// Fonction principale de rendu du jeu
-void render_game(SDL_Renderer *renderer, const game_t *game, TTF_Font *font) {
+void render_game(SDL_Renderer* renderer, const game_t* game, TTF_Font* font) {
     switch (game->state) {
         case RUNNING_STATE:
             render_running_state(renderer, game);
             break;
-
         case PLAYER_X_WON_STATE:
-        case PLAYER_O_WON_STATE:
-        case TIE_STATE:
-            render_game_over_state(renderer, game, 
-                game->state == PLAYER_X_WON_STATE ? &PLAYER_X_COLOR :
-                game->state == PLAYER_O_WON_STATE ? &PLAYER_O_COLOR :
-                &TIE_COLOR);
+            render_game_over_state(renderer, game, &THEME.accent1);
             break;
-
-        default: {}
-    }
-
-    // Affiche le menu de victoire si nécessaire
-    if (game->state == VICTORY_MENU_STATE) {
-        render_victory_menu(renderer, game, font);
+        case PLAYER_O_WON_STATE:
+            render_game_over_state(renderer, game, &THEME.accent2);
+            break;
+        case TIE_STATE:
+            render_game_over_state(renderer, game, &THEME.text_secondary);
+            break;
+        case VICTORY_MENU_STATE:
+            // On détermine la couleur à utiliser selon le gagnant
+            const SDL_Color* victory_color = NULL;
+            if (check_player_won(game, PLAYER_X)) {
+                victory_color = &THEME.accent1;
+            } else if (check_player_won(game, PLAYER_O)) {
+                victory_color = &THEME.accent2;
+            } else {
+                victory_color = &THEME.text_secondary;
+            }
+            render_game_over_state(renderer, game, victory_color);
+            render_victory_menu(renderer, game, font);
+            break;
+        default:
+            break;
     }
 }
