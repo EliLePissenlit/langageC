@@ -132,7 +132,18 @@ static void draw_button_text(SDL_Renderer* renderer, TTF_Font* font,
 }
 
 /**
- * @brief Dessine le titre d'un menu avec style
+ * @brief Dessine le titre d'un menu avec éléments décoratifs
+ * 
+ * Ajoute :
+ * - Lignes décoratives
+ * - Centrage automatique
+ * - Effet d'ombre
+ *
+ * @param renderer Contexte de rendu SDL
+ * @param font Police à utiliser
+ * @param text Texte du titre
+ * @param y_pos Position verticale
+ * @param window_width Largeur de la fenêtre pour le centrage
  */
 static void draw_menu_title(SDL_Renderer* renderer, TTF_Font* font,
                           const char* text, int y_pos, int window_width) {
@@ -277,10 +288,22 @@ void init_menu(menu_t* menu) {
     update_menu_dimensions(menu, INITIAL_WIDTH, INITIAL_HEIGHT);
 }
 
+/**
+ * @brief Remet le menu dans son état initial
+ *
+ * @param menu Menu à réinitialiser
+ */
 void reset_menu(menu_t* menu) {
     menu->mode = MENU_STATE;
 }
 
+/**
+ * @brief Libère les ressources allouées pour le menu
+ *
+ * Libère notamment la police de caractères utilisée par le menu.
+ *
+ * @param menu Menu dont il faut libérer les ressources
+ */
 void cleanup_menu(menu_t* menu) {
     if (menu->font) {
         TTF_CloseFont(menu->font);
@@ -335,6 +358,17 @@ int handle_menu_click(menu_t* menu, int x, int y) {
     
     return -1; // Aucune action spéciale
 }
+
+/**
+ * @brief Met à jour les positions et dimensions des boutons du menu
+ * 
+ * Recalcule les positions et dimensions de tous les boutons en fonction
+ * de la taille actuelle de la fenêtre pour maintenir un affichage responsive.
+ *
+ * @param menu Structure du menu à mettre à jour
+ * @param width Nouvelle largeur de la fenêtre
+ * @param height Nouvelle hauteur de la fenêtre
+ */
 
 void update_menu_dimensions(menu_t* menu, int width, int height) {
     menu->dimensions.window_width = width;

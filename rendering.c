@@ -54,6 +54,21 @@ static const ColorTheme THEME = {
  * Fonctions utilitaires statiques
  *********************************/
 
+/**
+ * @brief Dessine un bouton avec effets visuels
+ * 
+ * Ajoute :
+ * - Coins arrondis
+ * - Effet de survol
+ * - Bordure colorée
+ * - Effet de lueur au survol
+ *
+ * @param renderer Contexte de rendu SDL
+ * @param button Rectangle définissant le bouton
+ * @param color Couleur principale du bouton
+ * @param border_color Couleur de la bordure
+ * @param is_hovered État de survol du bouton
+ */
 static void draw_styled_button(SDL_Renderer* renderer, const SDL_Rect* button,
                              const SDL_Color* color, const SDL_Color* border_color,
                              int is_hovered) {
@@ -121,6 +136,21 @@ static void draw_victory_text(SDL_Renderer* renderer, TTF_Font* font,
     }
 }
 
+/**
+ * @brief Dessine le texte d'un bouton avec effets
+ * 
+ * Ajoute :
+ * - Ombre portée
+ * - Effet de mise à l'échelle au survol
+ * - Centrage automatique
+ *
+ * @param renderer Contexte de rendu SDL
+ * @param font Police à utiliser
+ * @param text Texte à afficher
+ * @param button Rectangle du bouton parent
+ * @param color Couleur du texte
+ * @param is_hovered État de survol du bouton
+ */
 static void draw_button_text(SDL_Renderer* renderer, TTF_Font* font,
                            const char* text, const SDL_Rect* button,
                            const SDL_Color* color, int is_hovered) {
@@ -168,6 +198,13 @@ static void draw_button_text(SDL_Renderer* renderer, TTF_Font* font,
  * Fonctions de rendu du jeu
  *********************************/
 
+/**
+ * @brief Dessine la grille de jeu
+ * 
+ * @param renderer Contexte de rendu SDL
+ * @param game État du jeu contenant les dimensions
+ * @param color Couleur de la grille (NULL pour couleur par défaut)
+ */
 static void render_grid(SDL_Renderer* renderer, const game_t* game, const SDL_Color* color) {
     // Utilise la couleur passée en paramètre ou la couleur par défaut de la grille
     const SDL_Color* grid_color = color ? color : &THEME.grid;
@@ -193,6 +230,15 @@ static void render_grid(SDL_Renderer* renderer, const game_t* game, const SDL_Co
     }
 }
 
+/**
+ * @brief Dessine un symbole X dans une cellule
+ * 
+ * @param renderer Contexte de rendu SDL
+ * @param game État du jeu contenant les dimensions
+ * @param row Ligne de la cellule
+ * @param column Colonne de la cellule
+ * @param color Couleur du symbole
+ */
 static void render_x(SDL_Renderer* renderer, const game_t* game, int row, int column, const SDL_Color* color) {
     const float half_box_side = fmin(game->dimensions.cell_width, game->dimensions.cell_height) * SYMBOL_SIZE_RATIO;
     const float center_x = game->dimensions.cell_width * 0.5 + column * game->dimensions.cell_width;
@@ -215,6 +261,15 @@ static void render_x(SDL_Renderer* renderer, const game_t* game, int row, int co
         color->r, color->g, color->b, color->a);
 }
 
+/**
+ * @brief Dessine un symbole O dans une cellule
+ * 
+ * @param renderer Contexte de rendu SDL
+ * @param game État du jeu contenant les dimensions
+ * @param row Ligne de la cellule
+ * @param column Colonne de la cellule
+ * @param color Couleur du symbole
+ */
 static void render_o(SDL_Renderer* renderer, const game_t* game, int row, int column, const SDL_Color* color) {
     const float half_box_side = fmin(game->dimensions.cell_width, game->dimensions.cell_height) * SYMBOL_SIZE_RATIO;
     const float center_x = game->dimensions.cell_width * 0.5 + column * game->dimensions.cell_width;
@@ -231,6 +286,13 @@ static void render_o(SDL_Renderer* renderer, const game_t* game, int row, int co
         THEME.background.r, THEME.background.g, THEME.background.b, THEME.background.a);
 }
 
+/**
+ * @brief Dessine l'ensemble du plateau avec tous les symboles
+ * 
+ * @param renderer Contexte de rendu SDL
+ * @param game État du jeu à afficher
+ * @param override_color Couleur de surcharge (NULL pour couleurs par défaut)
+ */
 static void render_board(SDL_Renderer* renderer, const game_t* game, const SDL_Color* override_color) {
     const SDL_Color* x_color = override_color ? override_color : &THEME.accent1;
     const SDL_Color* o_color = override_color ? override_color : &THEME.accent2;
@@ -251,6 +313,12 @@ static void render_board(SDL_Renderer* renderer, const game_t* game, const SDL_C
     }
 }
 
+/**
+ * @brief Affiche le plateau de jeu en cours de partie
+ * 
+ * @param renderer Contexte de rendu SDL
+ * @param game État du jeu à afficher
+ */
 static void render_running_state(SDL_Renderer* renderer, const game_t* game) {
     SDL_SetRenderDrawColor(renderer, 
         THEME.background.r, THEME.background.g, 
@@ -261,6 +329,13 @@ static void render_running_state(SDL_Renderer* renderer, const game_t* game) {
     render_board(renderer, game, NULL);
 }
 
+/**
+ * @brief Affiche l'état de victoire avec le plateau figé et effets de couleur
+ * 
+ * @param renderer Contexte de rendu SDL
+ * @param game État du jeu à afficher
+ * @param color Couleur à utiliser pour l'affichage
+ */
 static void render_game_over_state(SDL_Renderer* renderer, const game_t* game, const SDL_Color* color) {
     SDL_SetRenderDrawColor(renderer, 
         THEME.background.r, THEME.background.g, 
