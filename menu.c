@@ -132,18 +132,7 @@ static void draw_button_text(SDL_Renderer* renderer, TTF_Font* font,
 }
 
 /**
- * @brief Dessine le titre d'un menu avec éléments décoratifs
- * 
- * Ajoute :
- * - Lignes décoratives
- * - Centrage automatique
- * - Effet d'ombre
- *
- * @param renderer Contexte de rendu SDL
- * @param font Police à utiliser
- * @param text Texte du titre
- * @param y_pos Position verticale
- * @param window_width Largeur de la fenêtre pour le centrage
+ * @brief Dessine le titre d'un menu avec style
  */
 static void draw_menu_title(SDL_Renderer* renderer, TTF_Font* font,
                           const char* text, int y_pos, int window_width) {
@@ -179,6 +168,9 @@ static void draw_menu_title(SDL_Renderer* renderer, TTF_Font* font,
     }
 }
 
+/*********************************
+ * Implémentation des fonctions publiques
+ *********************************/
 
 void render_menu(SDL_Renderer* renderer, const menu_t* menu) {
     // Fond avec dégradé subtil
@@ -211,6 +203,9 @@ void render_menu(SDL_Renderer* renderer, const menu_t* menu) {
             draw_styled_button(renderer, &menu->ai_button,
                              &THEME.button, &THEME.accent2,
                              SDL_PointInRect(&mouse, &menu->ai_button));
+            draw_styled_button(renderer, &menu->scores_button,
+                             &THEME.button, &THEME.text_secondary,
+                             SDL_PointInRect(&mouse, &menu->scores_button));
 
             draw_button_text(renderer, menu->font, "Joueur vs Joueur",
                            &menu->player_button, &THEME.text,
@@ -218,6 +213,9 @@ void render_menu(SDL_Renderer* renderer, const menu_t* menu) {
             draw_button_text(renderer, menu->font, "Joueur vs IA",
                            &menu->ai_button, &THEME.text,
                            SDL_PointInRect(&mouse, &menu->ai_button));
+            draw_button_text(renderer, menu->font, "Scores",
+                           &menu->scores_button, &THEME.text,
+                           SDL_PointInRect(&mouse, &menu->scores_button));
             break;
 
         case AI_DIFFICULTY_STATE:
@@ -270,10 +268,24 @@ void render_menu(SDL_Renderer* renderer, const menu_t* menu) {
                            SDL_PointInRect(&mouse, &menu->snake_button));
             break;
 
+            case SCOREBOARD_STATE:
+            // Nouveau code pour l'affichage des scores
+            render_scoreboard(renderer, menu->game, menu->font);
+            
+            // Bouton retour
+            draw_styled_button(renderer, &menu->back_button,
+                             &THEME.button, &THEME.text_secondary,
+                             SDL_PointInRect(&mouse, &menu->back_button));
+            draw_button_text(renderer, menu->font, "Retour",
+                           &menu->back_button, &THEME.text,
+                           SDL_PointInRect(&mouse, &menu->back_button));
+            break;
+
         default:
             break;
     }
 }
+
 void init_menu(menu_t* menu) {
     menu->mode = MENU_STATE;
     
@@ -288,22 +300,10 @@ void init_menu(menu_t* menu) {
     update_menu_dimensions(menu, INITIAL_WIDTH, INITIAL_HEIGHT);
 }
 
-/**
- * @brief Remet le menu dans son état initial
- *
- * @param menu Menu à réinitialiser
- */
 void reset_menu(menu_t* menu) {
     menu->mode = MENU_STATE;
 }
 
-/**
- * @brief Libère les ressources allouées pour le menu
- *
- * Libère notamment la police de caractères utilisée par le menu.
- *
- * @param menu Menu dont il faut libérer les ressources
- */
 void cleanup_menu(menu_t* menu) {
     if (menu->font) {
         TTF_CloseFont(menu->font);
@@ -323,6 +323,10 @@ int handle_menu_click(menu_t* menu, int x, int y) {
             if (SDL_PointInRect(&click, &menu->ai_button)) {
                 menu->mode = AI_DIFFICULTY_STATE;
                 return 0;  // Signal pour mode IA
+            }
+            if (SDL_PointInRect(&click, &menu->scores_button)) {
+                menu->mode = SCOREBOARD_STATE;
+                return -2;  // Signal pour affichage scores
             }
             break;
 
@@ -352,23 +356,19 @@ int handle_menu_click(menu_t* menu, int x, int y) {
             }
             break;
 
+        case SCOREBOARD_STATE:
+            if (SDL_PointInRect(&click, &menu->back_button)) {
+                menu->mode = MENU_STATE;
+                return -1;
+            }
+            break;
+
         default:
             break;
     }
     
     return -1; // Aucune action spéciale
 }
-
-/**
- * @brief Met à jour les positions et dimensions des boutons du menu
- * 
- * Recalcule les positions et dimensions de tous les boutons en fonction
- * de la taille actuelle de la fenêtre pour maintenir un affichage responsive.
- *
- * @param menu Structure du menu à mettre à jour
- * @param width Nouvelle largeur de la fenêtre
- * @param height Nouvelle hauteur de la fenêtre
- */
 
 void update_menu_dimensions(menu_t* menu, int width, int height) {
     menu->dimensions.window_width = width;
@@ -383,6 +383,7 @@ void update_menu_dimensions(menu_t* menu, int width, int height) {
     // Menu principal
     menu->player_button = (SDL_Rect){x_offset, y_base, button_width, button_height};
     menu->ai_button = (SDL_Rect){x_offset, y_base + button_height + spacing, button_width, button_height};
+    menu->scores_button = (SDL_Rect){x_offset, y_base + 2 * (button_height + spacing), button_width, button_height};
 
     // Menu difficulté
     menu->easy_button = (SDL_Rect){x_offset, y_base, button_width, button_height};
@@ -392,4 +393,7 @@ void update_menu_dimensions(menu_t* menu, int width, int height) {
     // Menu mode de jeu
     menu->classic_button = (SDL_Rect){x_offset, y_base, button_width, button_height};
     menu->snake_button = (SDL_Rect){x_offset, y_base + button_height + spacing, button_width, button_height};
+
+    // Bouton retour (en bas de l'écran)
+    menu->back_button = (SDL_Rect){x_offset, height - 2 * button_height, button_width, button_height};
 }

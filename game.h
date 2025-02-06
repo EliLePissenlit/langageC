@@ -1,16 +1,13 @@
 /**
  * @file game.h
  * @brief Définitions fondamentales pour le jeu Tic-Tac-Toe
- *
- * Ce fichier contient les constantes, énumérations et structures de base
- * utilisées dans l'ensemble du projet. Il définit la configuration du jeu,
- * les états possibles, et la structure principale maintenant l'état du jeu.
  */
 
 #ifndef GAME_H_
 #define GAME_H_
 
 #include <SDL2/SDL.h>
+#include "./score.h"
 
 /*********************************
  * Configuration de la grille
@@ -27,12 +24,6 @@
 #define SCREEN_HEIGHT 480.0
 #define MIN_WINDOW_SIZE 300
 
-
-// /** @brief Largeur d'une cellule de la grille */
-// #define CELL_WIDTH (SCREEN_WIDTH / N)
-// /** @brief Hauteur d'une cellule de la grille */
-// #define CELL_HEIGHT (SCREEN_HEIGHT / N)
-
 typedef struct {
     int window_width;
     int window_height;
@@ -40,23 +31,17 @@ typedef struct {
     float cell_height;
 } window_dimensions_t;
 
-
 /*********************************
  * Configuration du timing
  *********************************/
 /** 
  * @brief Durée d'affichage de l'écran de victoire en millisecondes
- * Définit combien de temps l'état final est affiché avant le menu de victoire
  */
 #define VICTORY_DISPLAY_TIME 1500
 
 /*********************************
  * États des cellules
  *********************************/
-/**
- * @brief États possibles pour une cellule du plateau
- * @note Utilise des valeurs explicites pour la clarté et la débuggabilité
- */
 typedef enum {
     EMPTY = 0,    /**< Case vide */
     PLAYER_X = 1, /**< Case marquée d'une croix */
@@ -66,10 +51,6 @@ typedef enum {
 /*********************************
  * États du jeu
  *********************************/
-/**
- * @brief États possibles pour le jeu
- * Définit les différentes phases possibles d'une partie
- */
 typedef enum {
     RUNNING_STATE = 0,      /**< Partie en cours */
     PLAYER_X_WON_STATE = 1, /**< Victoire du joueur X */
@@ -81,13 +62,7 @@ typedef enum {
 /*********************************
  * Structure principale du jeu
  *********************************/
-/**
- * @brief Structure principale maintenant l'état du jeu
- * 
- * Cette structure contient toutes les informations nécessaires
- * pour représenter l'état complet d'une partie à un instant donné
- */
-typedef struct {
+typedef struct game_t {
     /** @brief Plateau de jeu (tableau 1D représentant une grille 2D) */
     int board[N * N];
     
@@ -97,10 +72,19 @@ typedef struct {
     /** @brief État actuel du jeu */
     GameState state;
     
-    /** 
-     * @brief Horodatage de la victoire
-     * Utilisé pour la temporisation de l'affichage de fin de partie
-     */
+    /** @brief Score de la session courante */
+    session_score_t current_score;
+    
+    /** @brief Historique des scores */
+    score_history_t* score_history;
+
+    /** @brief État du système de score */
+    ScoreState score_state;
+    
+    /** @brief Buffer pour la saisie du pseudo */
+    char username_buffer[MAX_USERNAME_INPUT_LENGTH];
+    
+    /** @brief Horodatage de la victoire */
     Uint32 victory_time;
     
     /** @brief Zone cliquable pour le bouton "Rejouer" */
@@ -109,16 +93,10 @@ typedef struct {
     /** @brief Zone cliquable pour le bouton "Menu principal" */
     SDL_Rect menu_button;
     
-    /** 
-     * @brief Mode de jeu actif
-     * true = mode Snake, false = mode classique
-     */
+    /** @brief Mode de jeu actif */
     int is_snake_mode;
     
-    /**
-     * @brief Mode IA actif
-     * true = partie contre l'IA, false = partie JcJ
-     */
+    /** @brief Mode IA actif */
     int is_ai_mode;
 
     int is_fullscreen;
@@ -128,20 +106,7 @@ typedef struct {
 /*********************************
  * Macros utilitaires
  *********************************/
-/**
- * @brief Convertit des coordonnées 2D en index 1D
- * @param row Numéro de ligne
- * @param col Numéro de colonne
- * @return Index dans le tableau board[]
- */
 #define BOARD_INDEX(row, col) ((row) * N + (col))
-
-/**
- * @brief Vérifie si des coordonnées sont valides
- * @param row Numéro de ligne
- * @param col Numéro de colonne
- * @return true si les coordonnées sont dans la grille
- */
 #define IS_VALID_CELL(row, col) ((row) >= 0 && (row) < N && (col) >= 0 && (col) < N)
 
 #endif  /* GAME_H_ */

@@ -23,6 +23,7 @@ set(SRCS
     ai.c
     snake.c
     window.c
+    score.c
 )
 
 set(HEADERS
@@ -33,6 +34,7 @@ set(HEADERS
     ai.h
     snake.h
     window.h
+    score.h
 )
 
 add_executable(play ${SRCS} ${HEADERS})

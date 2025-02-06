@@ -1,18 +1,8 @@
 /**
  * @file main.c
  * @brief Point d'entrée principal du jeu Tic-Tac-Toe avec modes classique et Snake
- * 
- * Ce fichier contient la boucle principale du jeu et gère :
- * - L'initialisation des composants SDL2
- * - La création et gestion de la fenêtre
- * - La boucle événementielle principale
- * - La gestion des différents états du jeu
- * - Le nettoyage des ressources
  */
 
-/*********************************
- * Includes
- *********************************/
 #include <stdlib.h>
 #include <stdio.h>
 #include <SDL2/SDL.h>
@@ -25,6 +15,7 @@
 #include "./ai.h"
 #include "./snake.h"
 #include "./window.h"
+#include "./score.h"
 
 /* Constantes locales */
 #define DEFAULT_WINDOW_POS_X 100
@@ -39,7 +30,7 @@ static void handle_snake_mode_turn(game_t* game, SDL_Renderer* renderer,
                                  int row, int col, int is_ai_game, ai_t* ai);
 static void handle_classic_mode_turn(game_t* game, int row, int col, 
                                    int is_ai_game, ai_t* ai);
-static void handle_victory_transition(game_t* game);
+static void handle_victory_transition(game_t* game, int is_ai_game);
 static void handle_menu_click_result(menu_t* menu, game_t* game, ai_t* ai,
                                    int* is_ai_game, int x, int y);
 
@@ -121,6 +112,8 @@ static void initialize_game_state(game_t* game) {
     game->victory_time = 0;
     game->is_snake_mode = 0;
     game->is_fullscreen = 0;
+    game->score_state = USERNAME_INPUT_STATE;
+    memset(game->username_buffer, 0, MAX_USERNAME_INPUT_LENGTH);
 
     // Initialisation des dimensions
     update_window_dimensions(game, INITIAL_WIDTH, INITIAL_HEIGHT);
@@ -131,11 +124,6 @@ static void initialize_game_state(game_t* game) {
  *********************************/
 /**
  * @brief Gère les événements de clic pendant le jeu
- * @param game État du jeu
- * @param renderer Renderer SDL
- * @param event Événement SDL
- * @param is_ai_game Indique si on joue contre l'IA
- * @param ai Configuration de l'IA
  */
 static void handle_game_click(game_t* game, SDL_Renderer* renderer, 
                             SDL_Event* event, int is_ai_game, ai_t* ai, menu_t* menu) {
@@ -204,14 +192,26 @@ static void handle_classic_mode_turn(game_t* game, int row, int col,
     }
 }
 
-static void handle_victory_transition(game_t* game) {
+/**
+ * @brief Gère la transition vers le menu de victoire
+ */
+static void handle_victory_transition(game_t* game, int is_ai_game) {
     if (game->state == PLAYER_X_WON_STATE || 
         game->state == PLAYER_O_WON_STATE || 
         game->state == TIE_STATE) {
         
-        // Si nouvelle victoire, enregistre le temps
+        // Si nouvelle victoire, enregistre le temps et met à jour le score
         if (game->victory_time == 0) {
             game->victory_time = SDL_GetTicks();
+            
+            // Met à jour le score uniquement pour le joueur humain en X
+            if (game->state == PLAYER_X_WON_STATE) {
+                update_player_score(game, 1);  // Victoire
+            } else if (game->state == PLAYER_O_WON_STATE && !is_ai_game) {
+                update_player_score(game, 1);  // Victoire du joueur O en JcJ
+            } else {
+                update_player_score(game, 0);  // Défaite ou égalité
+            }
         }
         
         // Après le délai, affiche le menu de victoire
@@ -250,13 +250,16 @@ static void handle_menu_click_result(menu_t* menu, game_t* game, ai_t* ai,
  * @brief Fonction principale
  */
 int main(int argc, char* argv[]) {
-    (void)argc; // Évite l'avertissement de paramètre non utilisé
+    (void)argc;
     (void)argv;
 
     // Initialisation des composants
     if (initialize_sdl() < 0) {
         return EXIT_FAILURE;
     }
+
+    // Active la saisie de texte
+    SDL_StartTextInput();
 
     // Création de la fenêtre et du renderer
     SDL_Window* window = create_window();
@@ -289,17 +292,29 @@ int main(int argc, char* argv[]) {
     game_t game;
     initialize_game_state(&game);
 
+    // Initialisation du système de score
+    if (init_score_system(&game) < 0) {
+        fprintf(stderr, "Erreur lors de l'initialisation du système de score\n");
+        TTF_CloseFont(font);
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        TTF_Quit();
+        SDL_Quit();
+        return EXIT_FAILURE;
+    }
+
     menu_t menu;
     ai_t ai;
     int is_ai_game = 0;
     
     init_menu(&menu);
+    menu.game = &game;
 
     // Boucle principale
     SDL_Event event;
     while (menu.mode != QUIT_STATE) {
         // Gestion de la transition vers le menu de victoire
-        handle_victory_transition(&game);
+        handle_victory_transition(&game, is_ai_game);
 
         // Gestion des événements
         while (SDL_PollEvent(&event)) {
@@ -308,7 +323,10 @@ int main(int argc, char* argv[]) {
                 break;
             }
 
-            if (event.type == SDL_MOUSEBUTTONDOWN) {
+            if (game.score_state == USERNAME_INPUT_STATE) {
+                handle_username_input(&game, &event);
+            }
+            else if (event.type == SDL_MOUSEBUTTONDOWN) {
                 if (menu.mode == MENU_STATE || 
                     menu.mode == AI_DIFFICULTY_STATE || 
                     menu.mode == GAME_MODE_STATE) {
@@ -318,6 +336,15 @@ int main(int argc, char* argv[]) {
                 }
                 else if (menu.mode == GAME_STATE) {
                     handle_game_click(&game, renderer, &event, is_ai_game, &ai, &menu);
+                }
+                else if (menu.mode == SCOREBOARD_STATE) {
+                    // Gestion du clic pour le tableau des scores
+                    int x = event.button.x;
+                    int y = event.button.y;
+                    SDL_Point click = { x, y };
+                    if (SDL_PointInRect(&click, &menu.back_button)) {
+                        menu.mode = MENU_STATE;
+                    }
                 }
             }
 
@@ -340,9 +367,10 @@ int main(int argc, char* argv[]) {
                         update_menu_dimensions(&menu, width, height);
                         break;
                 }
-            } else if (event.type == SDL_KEYDOWN) {
+            }
+            else if (event.type == SDL_KEYDOWN) {
                 switch (event.key.keysym.sym) {
-                    case SDLK_F11:  // F11 pour basculer le mode plein écran
+                    case SDLK_F11:
                         toggle_fullscreen(window, &game);
                         break;
                 }
@@ -353,24 +381,65 @@ int main(int argc, char* argv[]) {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
 
-        if (menu.mode == MENU_STATE || 
-            menu.mode == AI_DIFFICULTY_STATE || 
-            menu.mode == GAME_MODE_STATE) {
+        if (game.score_state == USERNAME_INPUT_STATE) {
+            render_username_input(renderer, &game, font);
+        }
+        else if (menu.mode == MENU_STATE || 
+                 menu.mode == AI_DIFFICULTY_STATE || 
+                 menu.mode == GAME_MODE_STATE) {
             render_menu(renderer, &menu);
         } 
         else if (menu.mode == GAME_STATE) {
             render_game(renderer, &game, font);
+        }
+        else if (menu.mode == SCOREBOARD_STATE) {
+            // Rendu du tableau des scores
+            SDL_SetRenderDrawColor(renderer, 18, 18, 24, 255);
+            SDL_RenderClear(renderer);
+            render_scoreboard(renderer, &game, font);
+
+            // Rendu du bouton retour
+            int mouse_x, mouse_y;
+            SDL_GetMouseState(&mouse_x, &mouse_y);
+            SDL_Point mouse = {mouse_x, mouse_y};
+            SDL_bool back_hovered = SDL_PointInRect(&mouse, &menu.back_button);
+
+            // Dessine le bouton
+            SDL_SetRenderDrawColor(renderer, 28, 28, 35, 255);
+            SDL_RenderFillRect(renderer, &menu.back_button);
+            if (back_hovered) {
+                SDL_SetRenderDrawColor(renderer, 97, 175, 239, 255);
+                SDL_RenderDrawRect(renderer, &menu.back_button);
+            }
+
+            // Texte du bouton
+            SDL_Color text_color = {255, 255, 255, 255};
+            SDL_Surface* text_surface = TTF_RenderText_Solid(font, "Retour", text_color);
+            if (text_surface) {
+                SDL_Texture* text_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
+                SDL_Rect text_rect = {
+                    menu.back_button.x + (menu.back_button.w - text_surface->w) / 2,
+                    menu.back_button.y + (menu.back_button.h - text_surface->h) / 2,
+                    text_surface->w,
+                    text_surface->h
+                };
+                SDL_RenderCopy(renderer, text_texture, NULL, &text_rect);
+                SDL_DestroyTexture(text_texture);
+                SDL_FreeSurface(text_surface);
+            }
         }
 
         SDL_RenderPresent(renderer);
     }
 
     // Nettoyage
+    cleanup_score_system(&game);
     TTF_CloseFont(font);
     cleanup_menu(&menu);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     TTF_Quit();
+    SDL_StopTextInput();
     SDL_Quit();
 
     return EXIT_SUCCESS;
