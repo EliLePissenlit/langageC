@@ -1,310 +1,377 @@
-#include <SDL2/SDL.h>
-#include <stdbool.h>
-#include <stdio.h>
+/**
+ * @file main.c
+ * @brief Point d'entrée principal du jeu Tic-Tac-Toe avec modes classique et Snake
+ * 
+ * Ce fichier contient la boucle principale du jeu et gère :
+ * - L'initialisation des composants SDL2
+ * - La création et gestion de la fenêtre
+ * - La boucle événementielle principale
+ * - La gestion des différents états du jeu
+ * - Le nettoyage des ressources
+ */
+
+/*********************************
+ * Includes
+ *********************************/
 #include <stdlib.h>
-#include <time.h>
+#include <stdio.h>
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
 
-typedef struct {
-    bool against_ai;
-    int level;
-} GameConfig;
+#include "./game.h"
+#include "./logic.h"
+#include "./rendering.h"
+#include "./menu.h"
+#include "./ai.h"
+#include "./snake.h"
+#include "./window.h"
 
-#define WINDOW_WIDTH 600
-#define WINDOW_HEIGHT 600
-#define CELL_SIZE (WINDOW_WIDTH / 3)
+/* Constantes locales */
+#define DEFAULT_WINDOW_POS_X 100
+#define DEFAULT_WINDOW_POS_Y 100
+#define DEFAULT_FONT_SIZE 24
+#define DEFAULT_FONT_PATH "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
-char board[3][3] = {{' ', ' ', ' '}, {' ', ' ', ' '}, {' ', ' ', ' '}};
-bool player1_turn = true;
+/*********************************
+ * Prototypes des fonctions statiques
+ *********************************/
+static void handle_snake_mode_turn(game_t* game, SDL_Renderer* renderer,
+                                 int row, int col, int is_ai_game, ai_t* ai);
+static void handle_classic_mode_turn(game_t* game, int row, int col, 
+                                   int is_ai_game, ai_t* ai);
+static void handle_victory_transition(game_t* game);
+static void handle_menu_click_result(menu_t* menu, game_t* game, ai_t* ai,
+                                   int* is_ai_game, int x, int y);
 
-void draw_board(SDL_Renderer* renderer) {
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    SDL_RenderDrawLine(renderer, WINDOW_WIDTH/3, 0, WINDOW_WIDTH/3, WINDOW_HEIGHT);
-    SDL_RenderDrawLine(renderer, 2*WINDOW_WIDTH/3, 0, 2*WINDOW_WIDTH/3, WINDOW_HEIGHT);
-    SDL_RenderDrawLine(renderer, 0, WINDOW_HEIGHT/3, WINDOW_WIDTH, WINDOW_HEIGHT/3);
-    SDL_RenderDrawLine(renderer, 0, 2*WINDOW_HEIGHT/3, WINDOW_WIDTH, 2*WINDOW_HEIGHT/3);
+/*********************************
+ * Fonctions d'initialisation
+ *********************************/
+/**
+ * @brief Initialise SDL2 et ses composants
+ * @return 0 en cas de succès, -1 en cas d'erreur
+ */
+static int initialize_sdl(void) {
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        fprintf(stderr, "Erreur SDL2: %s\n", SDL_GetError());
+        return -1;
+    }
+
+    if (TTF_Init() == -1) {
+        fprintf(stderr, "Erreur TTF: %s\n", TTF_GetError());
+        SDL_Quit();
+        return -1;
+    }
+
+    return 0;
 }
 
-void draw_x(SDL_Renderer* renderer, int row, int col) {
-    int x = col * CELL_SIZE;
-    int y = row * CELL_SIZE;
-    int padding = CELL_SIZE / 4;
-    SDL_RenderDrawLine(renderer, x + padding, y + padding,
-                       x + CELL_SIZE - padding, y + CELL_SIZE - padding);
-    SDL_RenderDrawLine(renderer, x + CELL_SIZE - padding, y + padding,
-                       x + padding, y + CELL_SIZE - padding);
+/**
+ * @brief Crée la fenêtre du jeu
+ * @return Pointeur vers la fenêtre créée, NULL en cas d'erreur
+ */
+static SDL_Window* create_window(void) {
+    SDL_Window* window = SDL_CreateWindow(
+        "Tic-Tac-Toe",
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+        INITIAL_WIDTH,
+        INITIAL_HEIGHT,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+    );
+
+    if (window == NULL) {
+        fprintf(stderr, "Erreur création fenêtre: %s\n", SDL_GetError());
+    }
+
+    return window;
 }
 
-void draw_o(SDL_Renderer* renderer, int row, int col) {
-    int x = col * CELL_SIZE + CELL_SIZE/2;
-    int y = row * CELL_SIZE + CELL_SIZE/2;
-    int radius = CELL_SIZE/3;
-    for(int w = -radius; w <= radius; w++) {
-        for(int h = -radius; h <= radius; h++) {
-            if(w*w + h*h <= radius*radius) {
-                SDL_RenderDrawPoint(renderer, x + w, y + h);
+/**
+ * @brief Crée le renderer avec les options optimales
+ * @param window Fenêtre SDL associée
+ * @return Pointeur vers le renderer créé, NULL en cas d'erreur
+ */
+static SDL_Renderer* create_renderer(SDL_Window* window) {
+    SDL_Renderer* renderer = SDL_CreateRenderer(
+        window,
+        -1,
+        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
+    );
+
+    if (renderer == NULL) {
+        fprintf(stderr, "Erreur création renderer: %s\n", SDL_GetError());
+    }
+
+    return renderer;
+}
+
+/**
+ * @brief Initialise la structure principale du jeu
+ * @param game Structure à initialiser
+ */
+static void initialize_game_state(game_t* game) {
+    // Initialisation du plateau
+    for (int i = 0; i < N * N; i++) {
+        game->board[i] = EMPTY;
+    }
+
+    // Configuration initiale
+    game->player = PLAYER_X;
+    game->state = RUNNING_STATE;
+    game->victory_time = 0;
+    game->is_snake_mode = 0;
+    game->is_fullscreen = 0;
+
+    // Initialisation des dimensions
+    update_window_dimensions(game, INITIAL_WIDTH, INITIAL_HEIGHT);
+}
+
+/*********************************
+ * Fonctions de gestion
+ *********************************/
+/**
+ * @brief Gère les événements de clic pendant le jeu
+ * @param game État du jeu
+ * @param renderer Renderer SDL
+ * @param event Événement SDL
+ * @param is_ai_game Indique si on joue contre l'IA
+ * @param ai Configuration de l'IA
+ */
+static void handle_game_click(game_t* game, SDL_Renderer* renderer, 
+                            SDL_Event* event, int is_ai_game, ai_t* ai, menu_t* menu) {
+    // Menu de victoire
+    if (game->state == VICTORY_MENU_STATE) {
+        SDL_Point click = {event->button.x, event->button.y};
+        
+        if (SDL_PointInRect(&click, &game->replay_button)) {
+            reset_game(game);
+            game->victory_time = 0;
+        } else if (SDL_PointInRect(&click, &game->menu_button)) {
+            reset_game(game);
+            game->victory_time = 0;
+            menu->mode = MENU_STATE;
+            return;
+        }
+        return;
+    }
+
+    // Jeu en cours
+    if (game->state == RUNNING_STATE) {
+        int row = event->button.y / game->dimensions.cell_height;
+        int col = event->button.x / game->dimensions.cell_width;
+        
+        // Vérifie si la case est libre
+        if (game->board[row * N + col] == EMPTY) {
+            if (game->is_snake_mode) {
+                handle_snake_mode_turn(game, renderer, row, col, is_ai_game, ai);
+            } else {
+                handle_classic_mode_turn(game, row, col, is_ai_game, ai);
             }
         }
     }
 }
 
-void draw_pieces(SDL_Renderer* renderer) {
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    for(int i = 0; i < 3; i++) {
-        for(int j = 0; j < 3; j++) {
-            if(board[i][j] == 'X') draw_x(renderer, i, j);
-            else if(board[i][j] == 'O') draw_o(renderer, i, j);
-        }
-    }
-}
-
-bool check_winner() {
-    for(int i = 0; i < 3; i++) {
-        if(board[i][0] != ' ' && board[i][0] == board[i][1] && board[i][1] == board[i][2]) return true;
-        if(board[0][i] != ' ' && board[0][i] == board[1][i] && board[1][i] == board[2][i]) return true;
-    }
-    if(board[0][0] != ' ' && board[0][0] == board[1][1] && board[1][1] == board[2][2]) return true;
-    if(board[0][2] != ' ' && board[0][2] == board[1][1] && board[1][1] == board[2][0]) return true;
-    return false;
-}
-
-bool is_board_full() {
-    for(int i = 0; i < 3; i++)
-        for(int j = 0; j < 3; j++)
-            if(board[i][j] == ' ') return false;
-    return true;
-}
-
-typedef struct {
-    int row;
-    int col;
-} Move;
-
-Move get_ai_move_easy() {
-    Move move;
-    do {
-        move.row = rand() % 3;
-        move.col = rand() % 3;
-    } while(board[move.row][move.col] != ' ');
-    return move;
-}
-
-Move get_ai_move_medium() {
-    for(int i = 0; i < 3; i++) {
-        for(int j = 0; j < 3; j++) {
-            if(board[i][j] == ' ') {
-                board[i][j] = 'O';
-                if(check_winner()) {
-                    board[i][j] = ' ';
-                    return (Move){i, j};
-                }
-                board[i][j] = 'X';
-                if(check_winner()) {
-                    board[i][j] = ' ';
-                    return (Move){i, j};
-                }
-                board[i][j] = ' ';
-            }
-        }
-    }
-    return get_ai_move_easy();
-}
-
-int minimax(bool is_maximizing) {
-    if(check_winner()) return is_maximizing ? -1 : 1;
-    if(is_board_full()) return 0;
+/**
+ * @brief Gère un tour en mode Snake
+ */
+static void handle_snake_mode_turn(game_t* game, SDL_Renderer* renderer, 
+                                 int row, int col, int is_ai_game, ai_t* ai) {
+    SnakeState result = play_snake_minigame(game, renderer, row, col);
     
-    int best_score = is_maximizing ? -1000 : 1000;
-    for(int i = 0; i < 3; i++) {
-        for(int j = 0; j < 3; j++) {
-            if(board[i][j] == ' ') {
-                board[i][j] = is_maximizing ? 'O' : 'X';
-                int score = minimax(!is_maximizing);
-                board[i][j] = ' ';
-                best_score = is_maximizing ? 
-                    (score > best_score ? score : best_score) :
-                    (score < best_score ? score : best_score);
-            }
+    if (result == SNAKE_WON) {
+        click_on_cell(game, row, col);
+        if (is_ai_game && game->state == RUNNING_STATE && 
+            game->player == PLAYER_O) {
+            ai_make_move(game, ai);
+        }
+    } else if (result == SNAKE_LOST) {
+        switch_player(game);
+        if (is_ai_game && game->player == PLAYER_O) {
+            ai_make_move(game, ai);
         }
     }
-    return best_score;
 }
 
-Move get_ai_move_hard() {
-    Move best_move = {-1, -1};
-    int best_score = -1000;
-    
-    for(int i = 0; i < 3; i++) {
-        for(int j = 0; j < 3; j++) {
-            if(board[i][j] == ' ') {
-                board[i][j] = 'O';
-                int score = minimax(false);
-                board[i][j] = ' ';
-                if(score > best_score) {
-                    best_score = score;
-                    best_move.row = i;
-                    best_move.col = j;
-                }
-            }
+/**
+ * @brief Gère un tour en mode classique
+ */
+static void handle_classic_mode_turn(game_t* game, int row, int col, 
+                                   int is_ai_game, ai_t* ai) {
+    click_on_cell(game, row, col);
+    if (is_ai_game && game->state == RUNNING_STATE && 
+        game->player == PLAYER_O) {
+        ai_make_move(game, ai);
+    }
+}
+
+static void handle_victory_transition(game_t* game) {
+    if (game->state == PLAYER_X_WON_STATE || 
+        game->state == PLAYER_O_WON_STATE || 
+        game->state == TIE_STATE) {
+        
+        // Si nouvelle victoire, enregistre le temps
+        if (game->victory_time == 0) {
+            game->victory_time = SDL_GetTicks();
+        }
+        
+        // Après le délai, affiche le menu de victoire
+        if (SDL_GetTicks() - game->victory_time >= VICTORY_DISPLAY_TIME) {
+            game->state = VICTORY_MENU_STATE;
         }
     }
-    return best_move;
 }
 
-Move get_ai_move(int level) {
-    switch(level) {
-        case 1: return get_ai_move_easy();
-        case 2: return get_ai_move_medium();
-        case 3: return get_ai_move_hard();
-        default: return get_ai_move_easy();
+static void handle_menu_click_result(menu_t* menu, game_t* game, ai_t* ai,
+                                   int* is_ai_game, int x, int y) {
+    int result = handle_menu_click(menu, x, y);
+    
+    if (result == 0) {  // Mode IA sélectionné
+        *is_ai_game = 1;
+        game->is_snake_mode = 0;
+    } else if (result == 1) {  // Mode JcJ sélectionné
+        *is_ai_game = 0;
+    } else if (result == MODE_CLASSIC) {
+        *is_ai_game = 0;
+        game->is_snake_mode = 0;
+        menu->mode = GAME_STATE;
+    } else if (result == MODE_SNAKE) {
+        *is_ai_game = 0;
+        game->is_snake_mode = 1;
+        menu->mode = GAME_STATE;
+    } else if (result >= EASY && result <= HARD) {
+        init_ai(ai, result);
+        *is_ai_game = 1;
+        game->is_snake_mode = 0;
+        menu->mode = GAME_STATE;
     }
 }
 
-GameConfig show_level_selection() {
-    SDL_Window* window = SDL_CreateWindow("Choisir le niveau",
-                                        SDL_WINDOWPOS_CENTERED,
-                                        SDL_WINDOWPOS_CENTERED,
-                                        300, 400,
-                                        SDL_WINDOW_SHOWN);
-    
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+/**
+ * @brief Fonction principale
+ */
+int main(int argc, char* argv[]) {
+    (void)argc; // Évite l'avertissement de paramètre non utilisé
+    (void)argv;
+
+    // Initialisation des composants
+    if (initialize_sdl() < 0) {
+        return EXIT_FAILURE;
+    }
+
+    // Création de la fenêtre et du renderer
+    SDL_Window* window = create_window();
+    if (!window) {
+        TTF_Quit();
+        SDL_Quit();
+        return EXIT_FAILURE;
+    }
+
+    SDL_Renderer* renderer = create_renderer(window);
     if (!renderer) {
         SDL_DestroyWindow(window);
+        TTF_Quit();
         SDL_Quit();
-        exit(EXIT_FAILURE);
+        return EXIT_FAILURE;
     }
-    
-    GameConfig config = {true, 1};
-    bool selected = false;
-    SDL_Event event;
-    SDL_Rect buttons[3] = {
-        {50, 100, 200, 50},
-        {50, 200, 200, 50},
-        {50, 300, 200, 50}
-    };
-    
-    while(!selected) {
-        int mouse_x, mouse_y;
-        SDL_GetMouseState(&mouse_x, &mouse_y);
-        
-        while(SDL_PollEvent(&event)) {
-            if(event.type == SDL_QUIT) {
-                SDL_DestroyRenderer(renderer);
-                SDL_DestroyWindow(window);
-                SDL_Quit();
-                exit(EXIT_SUCCESS);
-            }
-            if(event.type == SDL_MOUSEBUTTONDOWN) {
-                for(int i = 0; i < 3; i++) {
-                    if(mouse_x >= buttons[i].x && mouse_x <= buttons[i].x + buttons[i].w &&
-                       mouse_y >= buttons[i].y && mouse_y <= buttons[i].y + buttons[i].h) {
-                        config.level = i + 1;
-                        selected = true;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-        SDL_RenderClear(renderer);
-        
-        for(int i = 0; i < 3; i++) {
-            bool hover = mouse_x >= buttons[i].x && mouse_x <= buttons[i].x + buttons[i].w &&
-                        mouse_y >= buttons[i].y && mouse_y <= buttons[i].y + buttons[i].h;
-            
-            SDL_SetRenderDrawColor(renderer, hover ? 70 : 50, hover ? 140 : 120, hover ? 210 : 190, 255);
-            SDL_RenderFillRect(renderer, &buttons[i]);
-            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-            SDL_RenderDrawRect(renderer, &buttons[i]);
-            
-            const char* text = i == 0 ? "NIVEAU 1" : (i == 1 ? "NIVEAU 2" : "NIVEAU 3");
-            int len = i == 0 ? 8 : (i == 1 ? 8 : 8);
-            for(int j = 0; j < len; j++) {
-                int x = buttons[i].x + buttons[i].w/2 - (len * 10) + j*20;
-                int y = buttons[i].y + buttons[i].h/2;
-                for(int dx = -2; dx <= 2; dx++) {
-                    for(int dy = -2; dy <= 2; dy++) {
-                        SDL_RenderDrawPoint(renderer, x + dx, y + dy);
-                    }
-                }
-            }
-        }
-        
-        SDL_RenderPresent(renderer);
-    }
-    
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    return config;
-}
 
-int main() {
-    srand(time(NULL));
-    
-    if(SDL_Init(SDL_INIT_VIDEO) < 0) {
-        exit(EXIT_FAILURE);
-    }
-    
-    GameConfig config = show_level_selection();
-    
-    SDL_Window* window = SDL_CreateWindow("Tic Tac Toe",
-                                        SDL_WINDOWPOS_CENTERED,
-                                        SDL_WINDOWPOS_CENTERED,
-                                        WINDOW_WIDTH, WINDOW_HEIGHT,
-                                        SDL_WINDOW_SHOWN);
-    if(!window) {
-        SDL_Quit();
-        exit(EXIT_FAILURE);
-    }
-    
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    if(!renderer) {
+    // Chargement de la police
+    TTF_Font* font = TTF_OpenFont(DEFAULT_FONT_PATH, DEFAULT_FONT_SIZE);
+    if (!font) {
+        fprintf(stderr, "Erreur chargement police: %s\n", TTF_GetError());
+        SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
+        TTF_Quit();
         SDL_Quit();
-        exit(EXIT_FAILURE);
+        return EXIT_FAILURE;
     }
+
+    // Initialisation des structures de jeu
+    game_t game;
+    initialize_game_state(&game);
+
+    menu_t menu;
+    ai_t ai;
+    int is_ai_game = 0;
     
-    bool quit = false;
+    init_menu(&menu);
+
+    // Boucle principale
     SDL_Event event;
-    
-    while(!quit) {
-        while(SDL_PollEvent(&event)) {
-            if(event.type == SDL_QUIT) {
-                quit = true;
-            } else if(event.type == SDL_MOUSEBUTTONDOWN && !check_winner() && player1_turn) {
-                int x = event.button.x / CELL_SIZE;
-                int y = event.button.y / CELL_SIZE;
-                
-                if(x >= 0 && x < 3 && y >= 0 && y < 3 && board[y][x] == ' ') {
-                    board[y][x] = 'X';
-                    player1_turn = false;
+    while (menu.mode != QUIT_STATE) {
+        // Gestion de la transition vers le menu de victoire
+        handle_victory_transition(&game);
+
+        // Gestion des événements
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                menu.mode = QUIT_STATE;
+                break;
+            }
+
+            if (event.type == SDL_MOUSEBUTTONDOWN) {
+                if (menu.mode == MENU_STATE || 
+                    menu.mode == AI_DIFFICULTY_STATE || 
+                    menu.mode == GAME_MODE_STATE) {
+                    handle_menu_click_result(&menu, &game, &ai, 
+                                          &is_ai_game, event.button.x, 
+                                          event.button.y);
+                }
+                else if (menu.mode == GAME_STATE) {
+                    handle_game_click(&game, renderer, &event, is_ai_game, &ai, &menu);
+                }
+            }
+
+            // Gestion des événements de fenêtre
+            if (event.type == SDL_WINDOWEVENT) {
+                switch (event.window.event) {
+                    case SDL_WINDOWEVENT_RESIZED:
+                    case SDL_WINDOWEVENT_SIZE_CHANGED:
+                        // Force une taille minimale
+                        int width = event.window.data1;
+                        int height = event.window.data2;
+                        if (width < MIN_WINDOW_SIZE) width = MIN_WINDOW_SIZE;
+                        if (height < MIN_WINDOW_SIZE) height = MIN_WINDOW_SIZE;
+                        
+                        if (width != event.window.data1 || height != event.window.data2) {
+                            SDL_SetWindowSize(window, width, height);
+                        }
+                        
+                        update_window_dimensions(&game, width, height);
+                        update_menu_dimensions(&menu, width, height);
+                        break;
+                }
+            } else if (event.type == SDL_KEYDOWN) {
+                switch (event.key.keysym.sym) {
+                    case SDLK_F11:  // F11 pour basculer le mode plein écran
+                        toggle_fullscreen(window, &game);
+                        break;
                 }
             }
         }
-        
-        if(!player1_turn && !check_winner() && !is_board_full()) {
-            Move ai_move = get_ai_move(config.level);
-            board[ai_move.row][ai_move.col] = 'O';
-            player1_turn = true;
-        }
-        
+
+        // Rendu
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
-        
-        draw_board(renderer);
-        draw_pieces(renderer);
-        
-        SDL_RenderPresent(renderer);
-        
-        if(check_winner() || is_board_full()) {
-            SDL_Delay(2000);  
-            quit = true;
+
+        if (menu.mode == MENU_STATE || 
+            menu.mode == AI_DIFFICULTY_STATE || 
+            menu.mode == GAME_MODE_STATE) {
+            render_menu(renderer, &menu);
+        } 
+        else if (menu.mode == GAME_STATE) {
+            render_game(renderer, &game, font);
         }
+
+        SDL_RenderPresent(renderer);
     }
-    
+
+    // Nettoyage
+    TTF_CloseFont(font);
+    cleanup_menu(&menu);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
+    TTF_Quit();
     SDL_Quit();
-    
-    exit(EXIT_SUCCESS);
+
+    return EXIT_SUCCESS;
 }

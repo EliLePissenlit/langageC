@@ -1,5 +1,9 @@
-Pour compiler : 
+# Procedural
 
-=> make game
-
-=> ./play
+```console
+$ mkdir build/
+$ cd build/
+$ cmake ..
+$ make
+$ ./play
+```
