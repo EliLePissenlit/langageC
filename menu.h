@@ -47,9 +47,6 @@ typedef enum {
 /*********************************
  * Structure du menu
  *********************************/
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 struct menu_s {
     MenuState mode;           /**< État actuel du menu */
@@ -68,10 +65,6 @@ struct menu_s {
 };
 
 typedef struct menu_s menu_t;
-
-#ifdef __cplusplus
-}
-#endif
 
 /*********************************
  * Fonctions publiques
